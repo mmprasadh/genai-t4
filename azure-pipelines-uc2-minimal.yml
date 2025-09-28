@@ -1,0 +1,67 @@
+# azure-pipelines-docs-simple.yml
+trigger:
+  - main
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+steps:
+  # STEP 1: Checkout the repository (this gives access to all your files)
+  - checkout: self
+    displayName: 'Checkout Repository'
+  
+  # STEP 2: Verify files exist (optional - for debugging)
+  - script: |
+      echo "Current directory:"
+      pwd
+      echo ""
+      echo "Repository contents:"
+      ls -la
+      echo ""
+      echo "docs-gen directory:"
+      ls -la 0DEV/docs-gen/
+      echo ""
+      echo "Checking if requirements.txt exists:"
+      if [ -f "0DEV/docs-gen/requirements.txt" ]; then
+        echo "✅ Found 0DEV/docs-gen/requirements.txt"
+        cat 0DEV/docs-gen/requirements.txt
+      else
+        echo "❌ File not found!"
+        exit 1
+      fi
+    displayName: 'Verify Repository Files'
+  
+  # STEP 3: Setup Python
+  - task: UsePythonVersion@0
+    inputs:
+      versionSpec: '3.10'
+    displayName: 'Setup Python 3.10'
+  
+  # STEP 4: Install dependencies from repository file
+  - script: |
+      echo "Installing dependencies from 0DEV/docs-gen/requirements.txt..."
+      pip install -r 0DEV/api-spec-gen-func/requirements.txt
+      echo "✅ Dependencies installed successfully"
+    displayName: 'Install Dependencies from Repo'
+  
+  # STEP 5: Run Python program from repository
+  - script: |
+      echo "Running generate_docs.py from repository..."
+      
+      # The Python script is also in your repository
+      python 0DEV/docs-gen/generate_docs.py \
+        --spec 0DEV/specs/eam-api.yaml \
+        --output-md uc2docs/eam-api-doc.md \
+        --output-html uc2docs/eam-api-doc.html 
+      
+      echo "✅ Documentation generated"
+    displayName: 'Generate Documentation'
+    env:
+      AZURE_OPENAI_API_KEY: $(AZURE_OPENAI_API_KEY)
+      AZURE_OPENAI_ENDPOINT: $(AZURE_OPENAI_ENDPOINT)
+      AZURE_OPENAI_DEPLOYMENT: $(AZURE_OPENAI_DEPLOYMENT)
+  
+  - task: PublishBuildArtifacts@1
+    inputs:
+      PathtoPublish: '.'
+      ArtifactName: 'docs'

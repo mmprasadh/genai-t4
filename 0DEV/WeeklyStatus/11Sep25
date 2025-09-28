@@ -1,0 +1,20 @@
+Crunch 42
+Default responses not required
+!!!!!!Check if GenAI is excluding all the default responses!!!!
+
+1. Simple ruleset can be added.
+2. Check the data model - Check it in the
+3. KID rule set - 5 to 7 (maximum 6 characters, starts with an alphabet followed by 5 digits)
+4. Check the "enums" and its ruleset. It is important.
+5. Check the pattern
+
+
+Conformance Scan - Quite interested.
+
+v2-v1 check the EAM API to get the configuration options.
+"scan-v2-in-v1-compatible-mode"
+
+
+You can configure the eam-api to VSCode. openAPI swagger.
+
+Once configured, you can test it locally. Try it and as

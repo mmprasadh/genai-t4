@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "api-doc-generator": {
+      "command": "python",
+      "args": ["mcp_doc_generator_server.py"],
+      "env": {
+        "AZURE_DEVOPS_TOKEN": "token-here",
+        "AZURE_DEVOPS_ORG": "uniperteamservices",
+        "AZURE_DEVOPS_PROJECT": "APIM-GENAI",
+        "PIPELINE_ID": "G001"
+      }
+    }
+  }
+}

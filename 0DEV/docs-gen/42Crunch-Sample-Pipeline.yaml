@@ -1,0 +1,80 @@
+# Starter pipeline
+# Start with a minimal pipeline that you can customize to build and deploy your code.
+# Add steps that build, run tests, deploy, and more:
+# https://aka.ms/yaml
+trigger:
+  branches:
+    include:     # branch names which will trigger a build
+    - master
+
+parameters:
+- name: APIDefinitionFile
+  type: string
+  default: terraform/modules/apis/eam/eam.yaml
+
+- name: ValidationOnly
+  displayName: Validation Only
+  type: boolean
+  default: false
+
+
+stages:
+- stage: VaildateAPI_Crunch
+  pool:
+    vmImage: 'ubuntu-latest'
+  jobs:
+  - job: test
+    displayName: Run 42crunch
+    steps:
+      - task: APIContractSecurityAudit@8
+        displayName: Auditing OAS Files
+        inputs:
+          defaultCollectionName: 'EAM' 
+          platformServiceConnection: '42crunch'   
+          logLevel: DEBUG
+          apiTags: 'UniperRulesTag:Internal-APIs APIMTag:APIM'
+          sarifReport: '42Crunch_AuditReport.sarif'
+
+      # - task: PublishBuildArtifacts@1
+      #   displayName: publishAuditSarif
+      #   inputs:
+      #     PathtoPublish: '$(System.DefaultWorkingDirectory)/42Crunch_AuditReport.sarif'
+      #     ArtifactName: 'CodeAnalysisLogs'
+      #     publishLocation: 'Container'
+
+# - stage: Plan_TERRAFORM_DEV
+#   pool:
+#     vmImage: 'ubuntu-latest'
+#   condition: and(succeeded(), eq(${{ parameters.ValidationOnly }}, false)) 
+#   jobs:
+#   - job: Terraform_DEV_Application
+#     displayName: "Application DEV"
+#     steps:
+#     - task: ms-devlabs.custom-terraform-tasks.custom-terraform-installer-task.TerraformInstaller@1
+#       displayName: 'Install Terraform'
+#       inputs:
+#         terraformVersion: $(terraform-version)
+
+#     - task: TerraformTaskV3@3
+#       displayName: 'Terraform Init'
+#       inputs:
+#         provider: 'azurerm'
+#         command: 'init'
+#         workingDirectory: '$(System.DefaultWorkingDirectory)$(working-directory)'
+#         backendServiceArm: $(service-connection)
+#         backendAzureRmResourceGroupName: $(backend-resource-group)
+#         backendAzureRmStorageAccountName: $(backend-storage-account)
+#         backendAzureRmContainerName: $(backend-storage-container)
+#         backendAzureRmKey: 'codelab.microsoft.tfstate'        
+ 
+#     - task: TerraformTaskV3@3
+#       displayName: 'Terraform Plan'
+#       inputs:
+#         provider: 'azurerm'
+#         command: 'plan'
+#         commandOptions: '-var ARM_SUBSCRIPTION_ID=$(ARM_SUBSCRIPTION_ID) -var ARM_TENANT_ID=$(ARM_TENANT_ID)'
+#         workingDirectory: '$(System.DefaultWorkingDirectory)$(working-directory)'
+#         environmentServiceNameAzureRM: $(service-connection)
+
+
+

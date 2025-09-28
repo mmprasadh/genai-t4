@@ -1,0 +1,14 @@
+Use Case 2:
+
+
+    "bgwCategorization": "WhiteMC",
+    "bgwCategorizationDate": "2025-01-01"
+
+**** Expand the bgwCategorization ***** It is present in the APISpec.yaml file. Play around with response function parameters to regenerate the full document. *****
+
+**** Set a template of mermaid document. This would fix the problem of generating the document different variations. **** Try on this!
+
+
+**** Implementing MCP server for the users to get the API Specs ****
+
+*** Check the response function to add more parameters in the program *****

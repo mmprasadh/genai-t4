@@ -1,0 +1,765 @@
+# azure-pipelines-enhanced-complete-with-citations.yml
+trigger:
+  - main
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  - name: AZURE_OPENAI_API_VERSION
+    value: '2024-10-21'
+  - group: genai-api-lifecycle-vars  # Your existing variable group
+
+stages:
+  - stage: GenerateEnhancedDocs
+    displayName: 'Generate Enhanced Documentation'
+    jobs:
+      - job: GenerateDocs
+        displayName: 'Generate Documentation with Citations'
+        steps:
+          - checkout: self
+            displayName: 'Checkout Repository'
+          
+          - task: UsePythonVersion@0
+            inputs:
+              versionSpec: '3.10'
+            displayName: 'Setup Python 3.10'
+          
+          - script: |
+              echo "Installing Python dependencies..."
+              pip install openai pyyaml markdown openapi-spec-validator jsonschema
+            displayName: 'Install Dependencies'
+          
+          # Create directory structure
+          - script: |
+              mkdir -p 0DEV/docs-gen
+              mkdir -p docs
+            displayName: 'Create Directories'
+          
+          # Create abbreviations data file
+          - script: |
+              cat > 0DEV/docs-gen/abbreviations.py << 'EOF'
+              # Comprehensive abbreviations dictionary
+              ABBREVIATIONS = {
+                  # IT Security
+                  "BGW": "Border Gateway",
+                  "MC": "Management Console",
+                  "IC": "Information Classification",
+                  "CIA": "Confidentiality, Integrity, Availability",
+                  "GDPR": "General Data Protection Regulation",
+                  "PII": "Personally Identifiable Information",
+                  "PHI": "Protected Health Information",
+                  "RBAC": "Role-Based Access Control",
+                  "ABAC": "Attribute-Based Access Control",
+                  "MFA": "Multi-Factor Authentication",
+                  "2FA": "Two-Factor Authentication",
+                  "SSO": "Single Sign-On",
+                  "SAML": "Security Assertion Markup Language",
+                  "OIDC": "OpenID Connect",
+                  "LDAP": "Lightweight Directory Access Protocol",
+                  "AD": "Active Directory",
+                  "IAM": "Identity and Access Management",
+                  "PAM": "Privileged Access Management",
+                  "SIEM": "Security Information and Event Management",
+                  "SOAR": "Security Orchestration, Automation and Response",
+                  "SOC": "Security Operations Center",
+                  "CSIRT": "Computer Security Incident Response Team",
+                  "ISMS": "Information Security Management System",
+                  "DLP": "Data Loss Prevention",
+                  "IDS": "Intrusion Detection System",
+                  "IPS": "Intrusion Prevention System",
+                  "WAF": "Web Application Firewall",
+                  "NGFW": "Next-Generation Firewall",
+                  "EDR": "Endpoint Detection and Response",
+                  "XDR": "Extended Detection and Response",
+                  "CASB": "Cloud Access Security Broker",
+                  "SASE": "Secure Access Service Edge",
+                  "ZTA": "Zero Trust Architecture",
+                  "VPN": "Virtual Private Network",
+                  "TLS": "Transport Layer Security",
+                  "SSL": "Secure Sockets Layer",
+                  "PKI": "Public Key Infrastructure",
+                  "CA": "Certificate Authority",
+                  "HSM": "Hardware Security Module",
+                  "KMS": "Key Management Service",
+                  "AES": "Advanced Encryption Standard",
+                  "RSA": "Rivest-Shamir-Adleman",
+                  "SHA": "Secure Hash Algorithm",
+                  "HMAC": "Hash-based Message Authentication Code",
+                  
+                  # Compliance & Standards
+                  "ISO": "International Organization for Standardization",
+                  "IEC": "International Electrotechnical Commission",
+                  "NIST": "National Institute of Standards and Technology",
+                  "OWASP": "Open Web Application Security Project",
+                  "PCI-DSS": "Payment Card Industry Data Security Standard",
+                  "HIPAA": "Health Insurance Portability and Accountability Act",
+                  "SOX": "Sarbanes-Oxley Act",
+                  "FISMA": "Federal Information Security Management Act",
+                  "FedRAMP": "Federal Risk and Authorization Management Program",
+                  "CCPA": "California Consumer Privacy Act",
+                  "CPRA": "California Privacy Rights Act",
+                  "PIPEDA": "Personal Information Protection and Electronic Documents Act",
+                  "LGPD": "Lei Geral de Proteção de Dados (Brazilian Data Protection Law)",
+                  "APPI": "Act on the Protection of Personal Information (Japan)",
+                  "CIS": "Center for Internet Security",
+                  "CSF": "Cybersecurity Framework",
+                  "COBIT": "Control Objectives for Information Technologies",
+                  "ITIL": "Information Technology Infrastructure Library",
+                  "TOGAF": "The Open Group Architecture Framework",
+                  
+                  # API & Technical
+                  "API": "Application Programming Interface",
+                  "REST": "Representational State Transfer",
+                  "SOAP": "Simple Object Access Protocol",
+                  "GraphQL": "Graph Query Language",
+                  "gRPC": "Google Remote Procedure Call",
+                  "JSON": "JavaScript Object Notation",
+                  "XML": "Extensible Markup Language",
+                  "YAML": "YAML Ain't Markup Language",
+                  "HTTP": "Hypertext Transfer Protocol",
+                  "HTTPS": "Hypertext Transfer Protocol Secure",
+                  "WebSocket": "Web Socket Protocol",
+                  "URL": "Uniform Resource Locator",
+                  "URI": "Uniform Resource Identifier",
+                  "URN": "Uniform Resource Name",
+                  "UUID": "Universally Unique Identifier",
+                  "GUID": "Globally Unique Identifier",
+                  "CRUD": "Create, Read, Update, Delete",
+                  "SDK": "Software Development Kit",
+                  "CLI": "Command Line Interface",
+                  "GUI": "Graphical User Interface",
+                  "IDE": "Integrated Development Environment",
+                  "CI/CD": "Continuous Integration/Continuous Deployment",
+                  "DevOps": "Development Operations",
+                  "DevSecOps": "Development Security Operations",
+                  "SRE": "Site Reliability Engineering",
+                  "SLA": "Service Level Agreement",
+                  "SLO": "Service Level Objective",
+                  "SLI": "Service Level Indicator",
+                  "KPI": "Key Performance Indicator",
+                  "RPO": "Recovery Point Objective",
+                  "RTO": "Recovery Time Objective",
+                  "MTBF": "Mean Time Between Failures",
+                  "MTTR": "Mean Time To Recovery",
+                  
+                  # Security Vulnerabilities
+                  "XSS": "Cross-Site Scripting",
+                  "CSRF": "Cross-Site Request Forgery",
+                  "SSRF": "Server-Side Request Forgery",
+                  "SQLi": "SQL Injection",
+                  "NoSQLi": "NoSQL Injection",
+                  "XXE": "XML External Entity",
+                  "RCE": "Remote Code Execution",
+                  "LFI": "Local File Inclusion",
+                  "RFI": "Remote File Inclusion",
+                  "IDOR": "Insecure Direct Object Reference",
+                  "DoS": "Denial of Service",
+                  "DDoS": "Distributed Denial of Service",
+                  "MITM": "Man-In-The-Middle",
+                  "CVE": "Common Vulnerabilities and Exposures",
+                  "CWE": "Common Weakness Enumeration",
+                  "CVSS": "Common Vulnerability Scoring System"
+              }
+              EOF
+            displayName: 'Create Abbreviations Data'
+          
+          # Create citations data file
+          - script: |
+              cat > 0DEV/docs-gen/citations.py << 'EOF'
+              # Comprehensive citations
+              CITATIONS = {
+                  # Core Security Standards
+                  "ISO27001:2022": {
+                      "title": "ISO/IEC 27001:2022 Information security, cybersecurity and privacy protection",
+                      "publisher": "International Organization for Standardization",
+                      "year": "2022",
+                      "url": "https://www.iso.org/standard/27001"
+                  },
+                  "ISO27002:2022": {
+                      "title": "ISO/IEC 27002:2022 Information security controls",
+                      "publisher": "International Organization for Standardization",
+                      "year": "2022",
+                      "url": "https://www.iso.org/standard/75652.html"
+                  },
+                  "NIST-CSF-2.0": {
+                      "title": "NIST Cybersecurity Framework (CSF) 2.0",
+                      "publisher": "National Institute of Standards and Technology",
+                      "year": "2024",
+                      "url": "https://www.nist.gov/cyberframework"
+                  },
+                  "NIST-800-53r5": {
+                      "title": "Security and Privacy Controls for Information Systems and Organizations",
+                      "publisher": "NIST Special Publication 800-53 Revision 5",
+                      "year": "2020",
+                      "url": "https://csrc.nist.gov/publications/detail/sp/800-53/rev-5/final"
+                  },
+                  
+                  # Compliance Regulations
+                  "GDPR": {
+                      "title": "Regulation (EU) 2016/679 - General Data Protection Regulation",
+                      "publisher": "European Parliament and Council",
+                      "year": "2016",
+                      "url": "https://gdpr.eu/"
+                  },
+                  "CCPA": {
+                      "title": "California Consumer Privacy Act of 2018",
+                      "publisher": "State of California",
+                      "year": "2018",
+                      "url": "https://oag.ca.gov/privacy/ccpa"
+                  },
+                  "HIPAA": {
+                      "title": "Health Insurance Portability and Accountability Act",
+                      "publisher": "U.S. Department of Health & Human Services",
+                      "year": "1996",
+                      "url": "https://www.hhs.gov/hipaa/"
+                  },
+                  "PCI-DSS-v4": {
+                      "title": "Payment Card Industry Data Security Standard v4.0",
+                      "publisher": "PCI Security Standards Council",
+                      "year": "2022",
+                      "url": "https://www.pcisecuritystandards.org/"
+                  },
+                  "SOX": {
+                      "title": "Sarbanes-Oxley Act of 2002",
+                      "publisher": "U.S. Congress",
+                      "year": "2002",
+                      "url": "https://www.congress.gov/bill/107th-congress/house-bill/3763"
+                  },
+                  
+                  # API Security
+                  "OWASP-API-2023": {
+                      "title": "OWASP Top 10 API Security Risks – 2023",
+                      "publisher": "Open Web Application Security Project",
+                      "year": "2023",
+                      "url": "https://owasp.org/API-Security/editions/2023/en/0x00-header/"
+                  },
+                  "OWASP-Top10-2021": {
+                      "title": "OWASP Top 10 Web Application Security Risks",
+                      "publisher": "Open Web Application Security Project",
+                      "year": "2021",
+                      "url": "https://owasp.org/Top10/"
+                  },
+                  "OpenAPI-3.0.3": {
+                      "title": "OpenAPI Specification v3.0.3",
+                      "publisher": "OpenAPI Initiative",
+                      "year": "2020",
+                      "url": "https://spec.openapis.org/oas/v3.0.3"
+                  },
+                  
+                  # Authentication Standards
+                  "OAuth2-RFC6749": {
+                      "title": "The OAuth 2.0 Authorization Framework",
+                      "publisher": "Internet Engineering Task Force (IETF)",
+                      "year": "2012",
+                      "url": "https://datatracker.ietf.org/doc/html/rfc6749"
+                  },
+                  "OIDC": {
+                      "title": "OpenID Connect Core 1.0",
+                      "publisher": "OpenID Foundation",
+                      "year": "2014",
+                      "url": "https://openid.net/specs/openid-connect-core-1_0.html"
+                  },
+                  "JWT-RFC7519": {
+                      "title": "JSON Web Token (JWT)",
+                      "publisher": "Internet Engineering Task Force (IETF)",
+                      "year": "2015",
+                      "url": "https://datatracker.ietf.org/doc/html/rfc7519"
+                  },
+                  
+                  # Frameworks
+                  "CIS-Controls-v8": {
+                      "title": "CIS Critical Security Controls Version 8",
+                      "publisher": "Center for Internet Security",
+                      "year": "2021",
+                      "url": "https://www.cisecurity.org/controls/v8"
+                  },
+                  "COBIT-2019": {
+                      "title": "COBIT 2019 Framework: Governance and Management Objectives",
+                      "publisher": "ISACA",
+                      "year": "2019",
+                      "url": "https://www.isaca.org/resources/cobit"
+                  },
+                  "SOC2-TypeII": {
+                      "title": "Service Organization Control 2 Type II",
+                      "publisher": "American Institute of CPAs (AICPA)",
+                      "year": "2017",
+                      "url": "https://www.aicpa.org/soc4so"
+                  },
+                  
+                  # Best Practices
+                  "NIST-ZTA": {
+                      "title": "Zero Trust Architecture - NIST SP 800-207",
+                      "publisher": "National Institute of Standards and Technology",
+                      "year": "2020",
+                      "url": "https://csrc.nist.gov/publications/detail/sp/800-207/final"
+                  },
+                  "CSA-CCM-v4": {
+                      "title": "Cloud Controls Matrix v4.0",
+                      "publisher": "Cloud Security Alliance",
+                      "year": "2021",
+                      "url": "https://cloudsecurityalliance.org/research/cloud-controls-matrix"
+                  }
+              }
+              EOF
+            displayName: 'Create Citations Data'
+          
+          # Create main documentation generator
+          - script: |
+              cat > 0DEV/docs-gen/generate_docs_comprehensive.py << 'EOF'
+              #!/usr/bin/env python3
+              import os
+              import sys
+              import yaml
+              import json
+              import argparse
+              from openai import AzureOpenAI
+              import markdown
+              from datetime import datetime
+              
+              # Import our data files
+              from abbreviations import ABBREVIATIONS
+              from citations import CITATIONS
+              
+              class ComprehensiveDocsGenerator:
+                  def __init__(self):
+                      """Initialize with comprehensive abbreviations and citations"""
+                      self.client = AzureOpenAI(
+                          api_key=os.environ["AZURE_OPENAI_API_KEY"],
+                          azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
+                          api_version=os.environ.get("AZURE_OPENAI_API_VERSION", "2024-10-21")
+                      )
+                      self.deployment = os.environ["AZURE_OPENAI_DEPLOYMENT"]
+                      self.abbreviations = ABBREVIATIONS
+                      self.citations = CITATIONS
+                  
+                  def generate_complete_documentation(self, spec_path, output_md, output_html):
+                      """Generate complete documentation with all sections"""
+                      print("📚 Starting comprehensive documentation generation...")
+                      
+                      with open(spec_path, 'r') as f:
+                          spec_text = f.read()
+                          spec = yaml.safe_load(spec_text)
+                      
+                      sections = []
+                      
+                      # Generate all sections
+                      sections.append(self.generate_title_and_toc(spec))
+                      sections.append(self.generate_overview_section(spec_text, spec))
+                      sections.append(self.generate_auth_section(spec))
+                      sections.append(self.generate_endpoints_section(spec_text[:6000]))
+                      sections.append(self.generate_schemas_section(spec))
+                      sections.append(self.generate_security_section(spec))
+                      sections.append(self.generate_error_handling_section(spec))
+                      sections.append(self.generate_abbreviations_glossary())
+                      sections.append(self.generate_references_section())
+                      sections.append(self.generate_code_examples_section(spec))
+                      
+                      # Combine all sections
+                      complete_docs = "\n\n---\n\n".join(sections)
+                      
+                      # Save outputs
+                      with open(output_md, 'w') as f:
+                          f.write(complete_docs)
+                      
+                      html_content = self.convert_to_html(complete_docs)
+                      with open(output_html, 'w') as f:
+                          f.write(html_content)
+                      
+                      print("✅ Documentation generation complete!")
+                      return complete_docs
+                  
+                  def generate_title_and_toc(self, spec):
+                      """Generate title page and table of contents"""
+                      info = spec.get('info', {})
+                      title = info.get('title', 'API Documentation')
+                      version = info.get('version', '1.0.0')
+                      
+                      return f"""# {title}
+              
+              **Version**: {version}  
+              **Generated**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+              
+              ## Table of Contents
+              
+              1. [Overview](#overview)
+              2. [Authentication & Security](#authentication--security)
+              3. [API Endpoints](#api-endpoints)
+              4. [Data Schemas](#data-schemas)
+              5. [IT Security Guidelines](#it-security-guidelines)
+              6. [Error Handling](#error-handling)
+              7. [Abbreviations Glossary](#abbreviations-glossary)
+              8. [References and Citations](#references-and-citations)
+              9. [Code Examples](#code-examples)"""
+              EOF
+            displayName: 'Create Main Generator (Part 1)'
+          
+          # Continue with the rest of the generator methods
+          - script: |
+              cat >> 0DEV/docs-gen/generate_docs_comprehensive.py << 'EOF'
+                  
+                  def generate_overview_section(self, spec_text, spec):
+                      """Generate overview with abbreviations included"""
+                      abbrev_list = json.dumps(dict(list(self.abbreviations.items())[:30]), indent=2)
+                      citations_list = json.dumps(dict(list(self.citations.items())[:5]), indent=2)
+                      
+                      prompt = f"""Create a comprehensive API overview section.
+              
+              Include these abbreviations in context:
+              {abbrev_list}
+              
+              Reference these standards:
+              {citations_list}
+              
+              OpenAPI Info:
+              {json.dumps(spec.get('info', {}), indent=2)}
+              
+              Include:
+              1. Executive Summary
+              2. Purpose and Business Context
+              3. Target Audience
+              4. Key Features
+              5. Compliance Standards (reference citations)
+              
+              Use abbreviations naturally in text, e.g., "The API uses REST (Representational State Transfer) architecture..."
+              
+              Format as professional Markdown documentation."""
+              
+                      response = self.client.chat.completions.create(
+                          model=self.deployment,
+                          messages=[
+                              {"role": "system", "content": "You are a technical writer creating API documentation."},
+                              {"role": "user", "content": prompt}
+                          ],
+                          temperature=0.3,
+                          max_tokens=1500
+                      )
+                      
+                      return f"## Overview\n\n{response.choices[0].message.content}"
+                  
+                  def generate_auth_section(self, spec):
+                      """Generate authentication section with security citations"""
+                      security_schemes = spec.get('components', {}).get('securitySchemes', {})
+                      
+                      prompt = f"""Create a comprehensive Authentication & Security section.
+              
+              Security Schemes:
+              {json.dumps(security_schemes, indent=2)}
+              
+              Include references to:
+              - OAuth 2.0 (RFC 6749)
+              - OpenID Connect (OIDC)
+              - JWT (RFC 7519)
+              - OWASP API Security Top 10 2023
+              - Zero Trust Architecture (NIST SP 800-207)
+              
+              Cover:
+              1. Authentication methods
+              2. Authorization flows
+              3. Security best practices
+              4. Token management
+              5. Rate limiting
+              
+              Use proper citations, e.g., "Following OAuth 2.0 specifications [RFC 6749]..."
+              
+              Format as detailed Markdown."""
+              
+                      response = self.client.chat.completions.create(
+                          model=self.deployment,
+                          messages=[
+                              {"role": "system", "content": "You are a security expert documenting API authentication."},
+                              {"role": "user", "content": prompt}
+                          ],
+                          temperature=0.3,
+                          max_tokens=2000
+                      )
+                      
+                      return f"## Authentication & Security\n\n{response.choices[0].message.content}"
+              EOF
+            displayName: 'Create Main Generator (Part 2)'
+          
+          # Add remaining methods
+          - script: |
+              cat >> 0DEV/docs-gen/generate_docs_comprehensive.py << 'EOF'
+                  
+                  def generate_schemas_section(self, spec):
+                      """Generate schemas with IT Security field details"""
+                      schemas = spec.get('components', {}).get('schemas', {})
+                      
+                      prompt = f"""Create COMPREHENSIVE schema documentation focusing on IT Security fields.
+              
+              For security fields, explain:
+              1. bgwCategorization values (WhiteMC, BlackMC, GreyMC, White, Black, Grey)
+              2. CIA Triad levels (confidentiality, integrity, availability)
+              3. Security classification levels
+              
+              Include abbreviations: IC, RBAC, CIA, etc.
+              Format as detailed technical documentation."""
+              
+                      response = self.client.chat.completions.create(
+                          model=self.deployment,
+                          messages=[
+                              {"role": "system", "content": "You are an IT security expert documenting schemas."},
+                              {"role": "user", "content": prompt}
+                          ],
+                          temperature=0.3,
+                          max_tokens=3500
+                      )
+                      
+                      return f"## Data Schemas\n\n{response.choices[0].message.content}"
+                  
+                  def generate_security_section(self, spec):
+                      """Generate comprehensive IT Security guidelines"""
+                      prompt = f"""Create comprehensive IT Security Guidelines section.
+              
+              Cover:
+              1. Security Classification Framework
+              2. Compliance Requirements (GDPR, PCI-DSS, HIPAA, etc.)
+              3. Security Controls (NIST 800-53r5)
+              4. Implementation Guidelines
+              
+              Format with proper citations and abbreviations."""
+              
+                      response = self.client.chat.completions.create(
+                          model=self.deployment,
+                          messages=[
+                              {"role": "system", "content": "You are an IT security architect creating security guidelines."},
+                              {"role": "user", "content": prompt}
+                          ],
+                          temperature=0.2,
+                          max_tokens=3000
+                      )
+                      
+                      return f"## IT Security Guidelines\n\n{response.choices[0].message.content}"
+                  
+                  def generate_error_handling_section(self, spec):
+                      """Generate error handling with security considerations"""
+                      prompt = f"""Create comprehensive Error Handling section.
+              
+              Cover:
+              1. HTTP Status Codes
+              2. Error Response Schemas
+              3. Security Error Handling
+              4. Rate Limiting Errors
+              
+              Reference OWASP guidelines."""
+              
+                      response = self.client.chat.completions.create(
+                          model=self.deployment,
+                          messages=[
+                              {"role": "system", "content": "Create error handling documentation."},
+                              {"role": "user", "content": prompt}
+                          ],
+                          temperature=0.3,
+                          max_tokens=1500
+                      )
+                      
+                      return f"## Error Handling\n\n{response.choices[0].message.content}"
+                  
+                  def generate_endpoints_section(self, spec_text):
+                      """Generate endpoints documentation"""
+                      prompt = f"""Create detailed endpoint documentation.
+              
+              OpenAPI Spec (truncated):
+              {spec_text}
+              
+              For each endpoint include:
+              1. Method and Path
+              2. Purpose
+              3. Authentication required
+              4. Parameters
+              5. Request/Response examples
+              
+              Format as technical API documentation."""
+              
+                      response = self.client.chat.completions.create(
+                          model=self.deployment,
+                          messages=[
+                              {"role": "system", "content": "Create endpoint documentation."},
+                              {"role": "user", "content": prompt}
+                          ],
+                          temperature=0.3,
+                          max_tokens=3500
+                      )
+                      
+                      return f"## API Endpoints\n\n{response.choices[0].message.content}"
+              EOF
+            displayName: 'Create Main Generator (Part 3)'
+          
+          # Add utility methods and main function
+          - script: |
+              cat >> 0DEV/docs-gen/generate_docs_comprehensive.py << 'EOF'
+                  
+                  def generate_abbreviations_glossary(self):
+                      """Generate complete abbreviations glossary"""
+                      glossary = "## Abbreviations Glossary\n\n"
+                      glossary += "| Abbreviation | Full Form |\n|---|---|\n"
+                      for abbrev, full in sorted(self.abbreviations.items()):
+                          glossary += f"| **{abbrev}** | {full} |\n"
+                      return glossary
+                  
+                  def generate_references_section(self):
+                      """Generate complete references and citations"""
+                      references = "## References and Citations\n\n"
+                      for ref_id, ref_data in self.citations.items():
+                          references += f"**[{ref_id}]** {ref_data['title']}. "
+                          references += f"{ref_data['publisher']}, {ref_data['year']}. "
+                          references += f"Available at: {ref_data['url']}\n\n"
+                      return references
+                  
+                  def generate_code_examples_section(self, spec):
+                      """Generate code examples"""
+                      servers = spec.get('servers', [{'url': 'https://api.example.com'}])
+                      base_url = servers[0]['url'] if servers else 'https://api.example.com'
+                      
+                      return f"""## Code Examples
+              
+              ### Python Example
+              ```python
+              import requests
+              
+              headers = {{
+                  'X-API-Key': 'your-api-key',
+                  'Content-Type': 'application/json'
+              }}
+              
+              response = requests.get('{base_url}/endpoint', headers=headers)
+              print(response.json())
+              ```
+              
+              ### cURL Example
+              ```bash
+              curl -X GET "{base_url}/endpoint" \\
+                   -H "X-API-Key: your-api-key" \\
+                   -H "Content-Type: application/json"
+              ```"""
+                  
+                  def convert_to_html(self, markdown_content):
+                      """Convert markdown to HTML"""
+                      html_content = markdown.markdown(markdown_content, extensions=['tables', 'toc'])
+                      
+                      return f"""<!DOCTYPE html>
+              <html lang="en">
+              <head>
+                  <meta charset="UTF-8">
+                  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                  <title>API Documentation</title>
+                  <style>
+                      body {{ font-family: Arial, sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px; }}
+                      h1, h2, h3 {{ color: #333; }}
+                      table {{ border-collapse: collapse; width: 100%; margin: 10px 0; }}
+                      th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
+                      th {{ background-color: #f2f2f2; }}
+                      pre {{ background-color: #f4f4f4; padding: 10px; border-radius: 5px; overflow-x: auto; }}
+                      code {{ background-color: #f4f4f4; padding: 2px 4px; border-radius: 3px; }}
+                  </style>
+              </head>
+              <body>
+                  {html_content}
+              </body>
+              </html>"""
+              
+              def main():
+                  parser = argparse.ArgumentParser(description='Generate comprehensive API documentation')
+                  parser.add_argument('spec_path', help='Path to OpenAPI specification file')
+                  parser.add_argument('--output-md', default='docs/comprehensive-docs.md', help='Output markdown file')
+                  parser.add_argument('--output-html', default='docs/comprehensive-docs.html', help='Output HTML file')
+                  
+                  args = parser.parse_args()
+                  
+                  generator = ComprehensiveDocsGenerator()
+                  generator.generate_complete_documentation(args.spec_path, args.output_md, args.output_html)
+              
+              if __name__ == "__main__":
+                  main()
+              EOF
+              
+              chmod +x 0DEV/docs-gen/generate_docs_comprehensive.py
+            displayName: 'Create Main Generator (Part 4)'
+          
+          # Find OpenAPI spec file
+          - script: |
+              echo "Finding OpenAPI specification files..."
+              find . -name "*.yaml" -o -name "*.yml" -o -name "*.json" | grep -i -E "(openapi|swagger|api)" | head -5
+              
+              # Look for common spec file patterns
+              if [ -f "openapi.yaml" ]; then
+                  echo "##vso[task.setvariable variable=SPEC_FILE]openapi.yaml"
+              elif [ -f "openapi.yml" ]; then
+                  echo "##vso[task.setvariable variable=SPEC_FILE]openapi.yml"
+              elif [ -f "api.yaml" ]; then
+                  echo "##vso[task.setvariable variable=SPEC_FILE]api.yaml"
+              elif [ -f "swagger.yaml" ]; then
+                  echo "##vso[task.setvariable variable=SPEC_FILE]swagger.yaml"
+              else
+                  SPEC_FILE=$(find . -maxdepth 3 -name "*.yaml" -o -name "*.yml" | grep -v "azure-pipelines" | grep -v ".git" | head -1)
+                  if [ -n "$SPEC_FILE" ]; then
+                      echo "##vso[task.setvariable variable=SPEC_FILE]$SPEC_FILE"
+                      echo "Found spec file: $SPEC_FILE"
+                  else
+                      echo "##vso[task.setvariable variable=SPEC_FILE]"
+                      echo "No OpenAPI spec file found"
+                  fi
+              fi
+            displayName: 'Find OpenAPI Specification'
+          
+          # Generate comprehensive documentation
+          - script: |
+              if [ -z "$(SPEC_FILE)" ]; then
+                  echo "❌ No OpenAPI specification file found"
+                  echo "Available files:"
+                  find . -name "*.yaml" -o -name "*.yml" -o -name "*.json" | head -10
+                  exit 1
+              fi
+              
+              echo "🚀 Generating comprehensive documentation from: $(SPEC_FILE)"
+              cd 0DEV/docs-gen
+              python generate_docs_comprehensive.py "../../$(SPEC_FILE)" \
+                  --output-md "../../docs/comprehensive-api-docs.md" \
+                  --output-html "../../docs/comprehensive-api-docs.html"
+              
+              echo "📋 Documentation files generated:"
+              ls -la ../../docs/
+            displayName: 'Generate Comprehensive Documentation'
+            env:
+              AZURE_OPENAI_API_KEY: $(AZURE_OPENAI_API_KEY)
+              AZURE_OPENAI_ENDPOINT: $(AZURE_OPENAI_ENDPOINT)
+              AZURE_OPENAI_DEPLOYMENT: $(AZURE_OPENAI_DEPLOYMENT)
+          
+          # Publish documentation artifacts
+          - task: PublishBuildArtifacts@1
+            inputs:
+              pathToPublish: 'docs'
+              artifactName: 'comprehensive-api-documentation'
+              publishLocation: 'Container'
+            displayName: 'Publish Documentation Artifacts'
+            condition: always()
+          
+          # Display documentation summary
+          - script: |
+              echo "📚 Documentation Generation Summary"
+              echo "=================================="
+              if [ -f "docs/comprehensive-api-docs.md" ]; then
+                  echo "✅ Markdown documentation: docs/comprehensive-api-docs.md"
+                  echo "   Lines: $(wc -l < docs/comprehensive-api-docs.md)"
+                  echo "   Size: $(du -h docs/comprehensive-api-docs.md | cut -f1)"
+              fi
+              
+              if [ -f "docs/comprehensive-api-docs.html" ]; then
+                  echo "✅ HTML documentation: docs/comprehensive-api-docs.html"
+                  echo "   Size: $(du -h docs/comprehensive-api-docs.html | cut -f1)"
+              fi
+              
+              echo ""
+              echo "📋 Documentation includes:"
+              echo "   • Complete API overview with abbreviations"
+              echo "   • Authentication & security guidelines"
+              echo "   • Endpoint documentation"
+              echo "   • IT Security schema details"
+              echo "   • Comprehensive abbreviations glossary"
+              echo "   • References and citations"
+              echo "   • Code examples in multiple languages"
+              echo ""
+              echo "🎯 Ready for download from build artifacts!"
+            displayName: 'Documentation Summary'
+            condition: always()

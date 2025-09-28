@@ -1,0 +1,52 @@
+openapi: 3.0.3
+info:
+  title: Hello Weather API
+  version: "1.0.0"
+  description: |
+    A simple API with two endpoints to get a greeting and current weather for a city.
+servers:
+  - url: https://api.example.com/v1
+paths:
+  /hello:
+    get:
+      summary: Say hello
+      operationId: sayHello
+      parameters:
+        - in: query
+          name: name
+          schema:
+            type: string
+          description: Name to greet
+      responses:
+        "200":
+          description: Successful greeting
+          content:
+            application/json:
+              example:
+                message: "Hello, Alice!"
+  /weather:
+    get:
+      summary: Get current weather
+      operationId: getWeather
+      parameters:
+        - in: query
+          name: city
+          required: true
+          schema:
+            type: string
+          description: City name (e.g., London)
+      responses:
+        "200":
+          description: Weather data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  city: { type: string }
+                  tempC: { type: number, format: float }
+                  condition: { type: string }
+              example:
+                city: London
+                tempC: 18.5
+                condition: Partly cloudy

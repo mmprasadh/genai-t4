@@ -1,0 +1,75 @@
+# azure-pipelines-enhanced-complete-with-citations.yml
+trigger:
+  - main
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  - name: AZURE_OPENAI_API_VERSION
+    value: '2024-10-21'
+  - group: genai-api-lifecycle-vars
+
+stages:
+  - stage: GenerateEnhancedDocs
+    displayName: 'Generate Enhanced Documentation'
+    jobs:
+      - job: GenerateDocs
+        displayName: 'Generate Documentation with Citations'
+        steps:
+          - checkout: self
+            displayName: 'Checkout Repository'
+          
+          - task: UsePythonVersion@0
+            inputs:
+              versionSpec: '3.10'
+            displayName: 'Setup Python 3.10'
+          
+          - script: |
+              pip install openai pyyaml markdown openapi-spec-validator jsonschema
+            displayName: 'Install Dependencies'
+          
+          # Debug: Check what files exist
+          - script: |
+              echo "=== Checking repository structure ==="
+              echo "Current directory: $(pwd)"
+              echo ""
+              echo "Repository contents:"
+              ls -la
+              echo ""
+              echo "Checking for docs-gen directory:"
+              if [ -d "0DEV/docs-gen" ]; then
+                echo "0DEV/ docs-gen exists. Contents:"
+                ls -la 0DEV/docs-gen/
+              else
+                echo "❌ 0DEV/docs-gen directory not found"
+              fi
+              echo ""
+              echo "Checking for generate_docs_comprehensive.py:"
+              if [ -f "0DEV/docs-gen/generate_docs_comprehensive.py" ]; then
+                echo "✅ generate_docs_comprehensive.py exists"
+              else
+                echo "❌ generate_docs_comprehensive.py NOT FOUND - will create it"
+              fi
+            displayName: 'Debug: Check Files'
+          
+          # Generate documentation
+          - script: |
+              python 0DEV/docs-gen/generate_docs_comprehensive.py "0DEV/specs/eam-api.yaml" \
+                  --output-md "$(Build.ArtifactStagingDirectory)/comprehensive-api-docs2.md" \
+                  --output-html "$(Build.ArtifactStagingDirectory)/comprehensive-api-docs2.html"
+              echo "Documentation generated successfully"
+            displayName: 'Generate Documentation'
+            env:
+              AZURE_OPENAI_API_KEY: $(AZURE_OPENAI_API_KEY)
+              AZURE_OPENAI_ENDPOINT: $(AZURE_OPENAI_ENDPOINT)
+              AZURE_OPENAI_DEPLOYMENT: $(AZURE_OPENAI_DEPLOYMENT)
+          
+          # Publish artifacts
+          - task: PublishBuildArtifacts@1
+            inputs:
+              pathToPublish: '$(Build.ArtifactStagingDirectory)'
+              artifactName: 'comprehensive-api-documentation'
+              publishLocation: 'Container'
+            displayName: 'Publish Documentation'
+            condition: always()

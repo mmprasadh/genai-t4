@@ -1,0 +1,336 @@
+# API Documentation Generator Pipeline
+# Generates comprehensive LLM-powered API documentation with citations and abbreviations
+
+trigger: none
+
+###########################################################################
+parameters:
+- name: INPUT_SPEC_SOURCE
+  displayName: "API Specification Source"
+  type: string
+  default: 'current-repo-auto'
+  values:
+    - 'current-repo-auto'
+    - 'current-repo-custom'
+    - 'external-repo'
+    - 'external-url'
+
+- name: INPUT_SPEC_PATH
+  displayName: "API Spec File Path (if custom/external repo)"
+  type: string
+  default: 'openapi.yaml'
+
+- name: EXTERNAL_REPO_NAME
+  displayName: "External Repository Name (org/project/repo)"
+  type: string
+  default: ''
+
+- name: EXTERNAL_REPO_BRANCH
+  displayName: "External Repository Branch"
+  type: string
+  default: 'main'
+
+- name: EXTERNAL_URL
+  displayName: "External URL for API Spec (if URL source)"
+  type: string
+  default: ''
+
+- name: OUTPUT_DIRECTORY
+  displayName: "Output Directory"
+  type: string
+  default: 'generated-docs'
+
+- name: OUTPUT_MD_NAME
+  displayName: "Markdown Output Filename"
+  type: string
+  default: 'api-documentation.md'
+
+- name: OUTPUT_HTML_NAME
+  displayName: "HTML Output Filename"
+  type: string
+  default: 'api-documentation.html'
+
+- name: ARTIFACT_NAME
+  displayName: "Artifact Name"
+  type: string
+  default: 'api-documentation'
+
+- name: INCLUDE_CODE_EXAMPLES
+  displayName: "Include Code Examples"
+  type: boolean
+  default: true
+
+- name: INCLUDE_SECURITY_GUIDELINES
+  displayName: "Include IT Security Guidelines"
+  type: boolean
+  default: true
+
+- name: AZURE_OPENAI_DEPLOYMENT_NAME
+  displayName: "Azure OpenAI Deployment Name"
+  type: string
+  default: 'gpt-4'
+
+###########################################################################
+variables:
+  # Map parameters to variables for easier use
+  SPEC_SOURCE: ${{ parameters.INPUT_SPEC_SOURCE }}
+  SPEC_PATH: ${{ parameters.INPUT_SPEC_PATH }}
+  EXT_REPO: ${{ parameters.EXTERNAL_REPO_NAME }}
+  EXT_BRANCH: ${{ parameters.EXTERNAL_REPO_BRANCH }}
+  EXT_URL: ${{ parameters.EXTERNAL_URL }}
+  OUT_DIR: ${{ parameters.OUTPUT_DIRECTORY }}
+  MD_FILE: ${{ parameters.OUTPUT_MD_NAME }}
+  HTML_FILE: ${{ parameters.OUTPUT_HTML_NAME }}
+  ARTIFACT: ${{ parameters.ARTIFACT_NAME }}
+  CODE_EXAMPLES: ${{ parameters.INCLUDE_CODE_EXAMPLES }}
+  SECURITY_GUIDE: ${{ parameters.INCLUDE_SECURITY_GUIDELINES }}
+  OPENAI_DEPLOYMENT: ${{ parameters.AZURE_OPENAI_DEPLOYMENT_NAME }}
+  
+  # Fixed paths for 0DEV structure
+  DOCS_GEN_PATH: '0DEV/docs-gen'
+  WORKSPACE_PATH: '$(System.DefaultWorkingDirectory)'
+
+###########################################################################
+stages:
+  - stage: GenerateAPIDocs
+    displayName: 'Generate API Documentation'
+    jobs:
+      - job: DocumentationGeneration
+        displayName: 'Generate LLM-Powered Documentation'
+        timeoutInMinutes: 60
+        continueOnError: false
+        
+        steps:
+          # Setup and validate environment
+          - task: UsePythonVersion@0
+            displayName: 'Setup Python Environment'
+            inputs:
+              versionSpec: '3.10'
+              
+          - script: |
+              echo "Installing required Python packages..."
+              pip install openai pyyaml markdown openapi-spec-validator jsonschema requests
+            displayName: 'Install Dependencies'
+          
+          # Validate documentation generator exists
+          - script: |
+              if [ ! -d "$(DOCS_GEN_PATH)" ]; then
+                echo "Error: Documentation generator directory not found at $(DOCS_GEN_PATH)"
+                echo "Current directory contents:"
+                ls -la
+                exit 1
+              fi
+              
+              if [ ! -f "$(DOCS_GEN_PATH)/generate_docs_comprehensive.py" ]; then
+                echo "Error: Main generator script not found"
+                echo "Contents of $(DOCS_GEN_PATH):"
+                ls -la "$(DOCS_GEN_PATH)/"
+                exit 1
+              fi
+              
+              chmod +x "$(DOCS_GEN_PATH)/generate_docs_comprehensive.py"
+              mkdir -p "$(OUT_DIR)"
+              
+              echo "Documentation generator validated successfully"
+              echo "Output directory: $(OUT_DIR)"
+            displayName: 'Validate Documentation Generator'
+          
+          # Get API specification based on source
+          - script: |
+              SPEC_SOURCE="$(SPEC_SOURCE)"
+              SPEC_PATH="$(SPEC_PATH)"
+              EXT_REPO="$(EXT_REPO)"
+              EXT_BRANCH="$(EXT_BRANCH)"
+              EXT_URL="$(EXT_URL)"
+              
+              echo "API Specification Source: $SPEC_SOURCE"
+              
+              case $SPEC_SOURCE in
+                "current-repo-auto")
+                  echo "Auto-detecting API specification in current repository..."
+                  for file in eam-api.yaml eam-api.yml openapi.yaml openapi.yml api.yaml api.yml swagger.yaml swagger.yml; do
+                    if [ -f "$file" ]; then
+                      FINAL_SPEC="$file"
+                      echo "Found API spec: $file"
+                      break
+                    fi
+                  done
+                  
+                  if [ -z "$FINAL_SPEC" ]; then
+                    FINAL_SPEC=$(find . -maxdepth 3 -name "*.yaml" -o -name "*.yml" | grep -E "(openapi|api|swagger)" | head -1)
+                    if [ -n "$FINAL_SPEC" ]; then
+                      echo "Found API spec in subdirectory: $FINAL_SPEC"
+                    else
+                      echo "Error: No API specification found in current repository"
+                      exit 1
+                    fi
+                  fi
+                  ;;
+                  
+                "current-repo-custom")
+                  if [ -f "$SPEC_PATH" ]; then
+                    FINAL_SPEC="$SPEC_PATH"
+                    echo "Using custom spec file: $SPEC_PATH"
+                  else
+                    echo "Error: Custom spec file not found: $SPEC_PATH"
+                    exit 1
+                  fi
+                  ;;
+                  
+                "external-repo")
+                  if [ -z "$EXT_REPO" ]; then
+                    echo "Error: External repository name not provided"
+                    exit 1
+                  fi
+                  
+                  echo "Cloning external repository: $EXT_REPO"
+                  REPO_URL="https://dev.azure.com/$EXT_REPO"
+                  git clone --branch "$EXT_BRANCH" --depth 1 "$REPO_URL" external-repo
+                  
+                  if [ -f "external-repo/$SPEC_PATH" ]; then
+                    cp "external-repo/$SPEC_PATH" "external-spec.yaml"
+                    FINAL_SPEC="external-spec.yaml"
+                    echo "Retrieved spec from external repository: $SPEC_PATH"
+                  else
+                    echo "Error: Spec file not found in external repository: $SPEC_PATH"
+                    exit 1
+                  fi
+                  ;;
+                  
+                "external-url")
+                  if [ -z "$EXT_URL" ]; then
+                    echo "Error: External URL not provided"
+                    exit 1
+                  fi
+                  
+                  echo "Downloading API spec from URL: $EXT_URL"
+                  curl -f -o "url-spec.yaml" "$EXT_URL"
+                  if [ $? -eq 0 ]; then
+                    FINAL_SPEC="url-spec.yaml"
+                    echo "Downloaded spec from URL successfully"
+                  else
+                    echo "Error: Failed to download spec from URL"
+                    exit 1
+                  fi
+                  ;;
+                  
+                *)
+                  echo "Error: Unknown specification source: $SPEC_SOURCE"
+                  exit 1
+                  ;;
+              esac
+              
+              echo "##vso[task.setvariable variable=FINAL_SPEC_FILE]$FINAL_SPEC"
+              echo "Final API specification file: $FINAL_SPEC"
+            displayName: 'Get API Specification'
+          
+          # Generate comprehensive documentation
+          - script: |
+              cd "$(DOCS_GEN_PATH)"
+              
+              SPEC_FILE="../$(FINAL_SPEC_FILE)"
+              MD_OUTPUT="../$(OUT_DIR)/$(MD_FILE)"
+              HTML_OUTPUT="../$(OUT_DIR)/$(HTML_FILE)"
+              
+              echo "Generating documentation..."
+              echo "  Input spec: $SPEC_FILE"
+              echo "  Markdown output: $MD_OUTPUT"
+              echo "  HTML output: $HTML_OUTPUT"
+              echo "  Include code examples: $(CODE_EXAMPLES)"
+              echo "  Include security guidelines: $(SECURITY_GUIDE)"
+              
+              # Build generator command
+              GENERATOR_CMD="python generate_docs_comprehensive.py $SPEC_FILE --output-md $MD_OUTPUT --output-html $HTML_OUTPUT"
+              
+              # Add optional flags (if your generator supports them)
+              if [ "$(CODE_EXAMPLES)" = "False" ]; then
+                GENERATOR_CMD="$GENERATOR_CMD --no-code-examples"
+              fi
+              
+              if [ "$(SECURITY_GUIDE)" = "False" ]; then
+                GENERATOR_CMD="$GENERATOR_CMD --no-security-guidelines"
+              fi
+              
+              echo "Executing: $GENERATOR_CMD"
+              eval $GENERATOR_CMD
+              
+              if [ $? -eq 0 ]; then
+                echo "Documentation generation completed successfully"
+              else
+                echo "Error: Documentation generation failed"
+                exit 1
+              fi
+            displayName: 'Generate Documentation'
+            env:
+              AZURE_OPENAI_API_KEY: $(AZURE_OPENAI_API_KEY)
+              AZURE_OPENAI_ENDPOINT: $(AZURE_OPENAI_ENDPOINT)
+              AZURE_OPENAI_DEPLOYMENT: $(OPENAI_DEPLOYMENT)
+              AZURE_OPENAI_API_VERSION: '2024-10-21'
+          
+          # Validate generated documentation
+          - script: |
+              MD_PATH="$(OUT_DIR)/$(MD_FILE)"
+              HTML_PATH="$(OUT_DIR)/$(HTML_FILE)"
+              
+              echo "Validating generated documentation..."
+              
+              if [ ! -f "$MD_PATH" ]; then
+                echo "Error: Markdown file not generated: $MD_PATH"
+                exit 1
+              fi
+              
+              if [ ! -f "$HTML_PATH" ]; then
+                echo "Error: HTML file not generated: $HTML_PATH"
+                exit 1
+              fi
+              
+              MD_SIZE=$(stat -c%s "$MD_PATH" 2>/dev/null || echo "0")
+              HTML_SIZE=$(stat -c%s "$HTML_PATH" 2>/dev/null || echo "0")
+              
+              if [ "$MD_SIZE" -lt 1000 ]; then
+                echo "Warning: Markdown file seems small ($MD_SIZE bytes)"
+              else
+                echo "Markdown file size: $MD_SIZE bytes"
+              fi
+              
+              if [ "$HTML_SIZE" -lt 1000 ]; then
+                echo "Warning: HTML file seems small ($HTML_SIZE bytes)"
+              else
+                echo "HTML file size: $HTML_SIZE bytes"
+              fi
+              
+              echo "Documentation validation completed"
+            displayName: 'Validate Generated Documentation'
+          
+          # Publish documentation artifacts
+          - task: PublishBuildArtifacts@1
+            inputs:
+              pathToPublish: '$(OUT_DIR)'
+              artifactName: '$(ARTIFACT)'
+              publishLocation: 'Container'
+            displayName: 'Publish Documentation Artifacts'
+            condition: always()
+          
+          # Display generation summary
+          - script: |
+              echo "=========================================================="
+              echo "API DOCUMENTATION GENERATION SUMMARY"
+              echo "=========================================================="
+              echo ""
+              echo "Configuration Used:"
+              echo "  Source: $(SPEC_SOURCE)"
+              echo "  Input Spec: $(FINAL_SPEC_FILE)"
+              echo "  Output Directory: $(OUT_DIR)"
+              echo "  Markdown File: $(MD_FILE)"
+              echo "  HTML File: $(HTML_FILE)"
+              echo "  Artifact Name: $(ARTIFACT)"
+              echo "  Code Examples: $(CODE_EXAMPLES)"
+              echo "  Security Guidelines: $(SECURITY_GUIDE)"
+              echo ""
+              echo "Generated Files:"
+              ls -la "$(OUT_DIR)/"
+              echo ""
+              echo "Download Location: Build Artifacts > $(ARTIFACT)"
+              echo "=========================================================="
+            displayName: 'Generation Summary'
+            condition: always()

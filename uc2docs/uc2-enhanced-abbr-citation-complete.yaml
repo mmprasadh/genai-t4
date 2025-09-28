@@ -1,0 +1,291 @@
+# azure-pipelines-enhanced-complete-with-citations.yml
+trigger:
+  - main
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  - name: AZURE_OPENAI_API_VERSION
+    value: '2024-10-21'
+  - group: genai-api-lifecycle-vars  # Your existing variable group
+
+stages:
+  - stage: GenerateEnhancedDocs
+    displayName: 'Generate Enhanced Documentation'
+    jobs:
+      - job: GenerateDocs
+        displayName: 'Generate Documentation with Citations'
+        steps:
+          - checkout: self
+            displayName: 'Checkout Repository'
+          
+          - task: UsePythonVersion@0
+            inputs:
+              versionSpec: '3.10'
+            displayName: 'Setup Python 3.10'
+          
+          - script: |
+              echo "Installing Python dependencies..."
+              pip install openai pyyaml markdown openapi-spec-validator jsonschema
+            displayName: 'Install Dependencies'
+          
+          # Verify docs-gen directory exists
+          - script: |
+              echo "Verifying docs-gen directory structure..."
+              if [ -d "0DEV/docs-gen" ]; then
+                  echo "✅ docs-gen directory found"
+                  echo "📁 Contents of docs-gen directory:"
+                  ls -la 0DEV/docs-gen/
+                  
+                  # Check for required files
+                  if [ -f "0DEV/docs-gen/generate_docs_comprehensive.py" ]; then
+                      echo "✅ Main generator found: generate_docs_comprehensive.py"
+                  else
+                      echo "❌ Missing: generate_docs_comprehensive.py"
+                      exit 1
+                  fi
+                  
+                  if [ -f "0DEV/docs-gen/abbreviations.py" ]; then
+                      echo "✅ Abbreviations file found: abbreviations.py"
+                  else
+                      echo "❌ Missing: abbreviations.py"
+                      exit 1
+                  fi
+                  
+                  if [ -f "0DEV/docs-gen/citations.py" ]; then
+                      echo "✅ Citations file found: citations.py"
+                  else
+                      echo "❌ Missing: citations.py"
+                      exit 1
+                  fi
+                  
+                  # Make generator executable
+                  chmod +x docs-gen/generate_docs_comprehensive.py
+                  echo "✅ Made generator executable"
+              else
+                  echo "❌ docs-gen directory not found in repository"
+                  echo "📂 Repository structure:"
+                  find . -maxdepth 2 -type d | head -10
+                  echo ""
+                  echo "💡 Please ensure the docs-gen directory with the following files exists in your repository:"
+                  echo "   - docs-gen/generate_docs_comprehensive.py"
+                  echo "   - docs-gen/abbreviations.py"
+                  echo "   - docs-gen/citations.py"
+                  exit 1
+              fi
+            displayName: 'Verify Documentation Generator Files'
+          
+          # Create output directory
+          - script: |
+              mkdir -p docs
+              echo "✅ Created docs output directory"
+            displayName: 'Create Output Directory'
+          
+          # Find OpenAPI spec file
+          - script: |
+              echo "🔍 Finding OpenAPI specification files..."
+              
+              # Search for common OpenAPI spec file patterns
+              echo "Available YAML/JSON files:"
+              find . -name "*.yaml" -o -name "*.yml" -o -name "*.json" | grep -v ".git" | grep -v "node_modules" | head -10
+              
+              # Look for spec files in order of preference
+              if [ -f "0DEV/specs/eam-api.yaml" ]; then
+                  SPEC_FILE="0DEV/specs/eam-api.yaml"
+              elif [ -f "openapi.yml" ]; then
+                  SPEC_FILE="openapi.yml"
+              elif [ -f "api.yaml" ]; then
+                  SPEC_FILE="api.yaml"
+              elif [ -f "api.yml" ]; then
+                  SPEC_FILE="api.yml"
+              elif [ -f "swagger.yaml" ]; then
+                  SPEC_FILE="swagger.yaml"
+              elif [ -f "swagger.yml" ]; then
+                  SPEC_FILE="swagger.yml"
+              else
+                  # Search in common directories
+                  SPEC_FILE=$(find . -maxdepth 3 \( -name "*.yaml" -o -name "*.yml" \) \
+                              -not -path "./.git/*" \
+                              -not -path "./node_modules/*" \
+                              -not -name "azure-pipelines*" \
+                              -not -name "*docker*" \
+                              -not -name "*k8s*" \
+                              -not -name "*kubernetes*" | head -1)
+              fi
+              
+              if [ -n "$SPEC_FILE" ] && [ -f "$SPEC_FILE" ]; then
+                  echo "✅ Found OpenAPI spec file: $SPEC_FILE"
+                  echo "##vso[task.setvariable variable=SPEC_FILE]$SPEC_FILE"
+                  
+                  # Validate it looks like an OpenAPI spec
+                  if grep -q -i "openapi\|swagger" "$SPEC_FILE"; then
+                      echo "✅ File appears to be an OpenAPI specification"
+                  else
+                      echo "⚠️ Warning: File may not be an OpenAPI specification"
+                  fi
+              else
+                  echo "❌ No OpenAPI specification file found"
+                  echo ""
+                  echo "📋 Searched for these patterns:"
+                  echo "   - openapi.yaml / openapi.yml"
+                  echo "   - api.yaml / api.yml"
+                  echo "   - swagger.yaml / swagger.yml"
+                  echo ""
+                  echo "💡 Please ensure your OpenAPI spec file is in the repository root or provide the correct path"
+                  echo "##vso[task.setvariable variable=SPEC_FILE]"
+                  exit 1
+              fi
+            displayName: 'Find OpenAPI Specification'
+          
+          # Generate comprehensive documentation
+          - script: |
+              echo "🚀 Starting comprehensive documentation generation..."
+              echo "📄 Using OpenAPI spec: $(SPEC_FILE)"
+              echo "🔧 Using generator: docs-gen/generate_docs_comprehensive.py"
+              
+              # Change to docs-gen directory and run the generator
+              cd docs-gen
+              
+              # Run the comprehensive documentation generator
+              python generate_docs_comprehensive.py "../$(SPEC_FILE)" \
+                  --output-md "../docs/comprehensive-api-docs.md" \
+                  --output-html "../docs/comprehensive-api-docs.html"
+              
+              # Return to root directory
+              cd ..
+              
+              echo ""
+              echo "📋 Generated documentation files:"
+              ls -la docs/
+              
+              # Show file sizes and line counts
+              if [ -f "docs/comprehensive-api-docs.md" ]; then
+                  echo "📊 Markdown documentation stats:"
+                  echo "   Lines: $(wc -l < docs/comprehensive-api-docs.md)"
+                  echo "   Size: $(du -h docs/comprehensive-api-docs.md | cut -f1)"
+              fi
+              
+              if [ -f "docs/comprehensive-api-docs.html" ]; then
+                  echo "📊 HTML documentation stats:"
+                  echo "   Size: $(du -h docs/comprehensive-api-docs.html | cut -f1)"
+              fi
+              
+              echo "✅ Documentation generation completed successfully!"
+            displayName: 'Generate Comprehensive Documentation'
+            env:
+              AZURE_OPENAI_API_KEY: $(AZURE_OPENAI_API_KEY)
+              AZURE_OPENAI_ENDPOINT: $(AZURE_OPENAI_ENDPOINT)
+              AZURE_OPENAI_DEPLOYMENT: $(AZURE_OPENAI_DEPLOYMENT)
+          
+          # Validate generated documentation
+          - script: |
+              echo "🔍 Validating generated documentation..."
+              
+              # Check if files were created
+              if [ ! -f "docs/comprehensive-api-docs.md" ]; then
+                  echo "❌ Markdown documentation was not generated"
+                  exit 1
+              fi
+              
+              if [ ! -f "docs/comprehensive-api-docs.html" ]; then
+                  echo "❌ HTML documentation was not generated"
+                  exit 1
+              fi
+              
+              # Check file sizes (should not be empty)
+              MD_SIZE=$(stat -f%z "docs/comprehensive-api-docs.md" 2>/dev/null || stat -c%s "docs/comprehensive-api-docs.md" 2>/dev/null || echo "0")
+              HTML_SIZE=$(stat -f%z "docs/comprehensive-api-docs.html" 2>/dev/null || stat -c%s "docs/comprehensive-api-docs.html" 2>/dev/null || echo "0")
+              
+              if [ "$MD_SIZE" -lt 1000 ]; then
+                  echo "⚠️ Warning: Markdown documentation seems too small ($MD_SIZE bytes)"
+              else
+                  echo "✅ Markdown documentation size looks good ($MD_SIZE bytes)"
+              fi
+              
+              if [ "$HTML_SIZE" -lt 1000 ]; then
+                  echo "⚠️ Warning: HTML documentation seems too small ($HTML_SIZE bytes)"
+              else
+                  echo "✅ HTML documentation size looks good ($HTML_SIZE bytes)"
+              fi
+              
+              # Check for key sections in markdown
+              if grep -q "## Overview" docs/comprehensive-api-docs.md; then
+                  echo "✅ Overview section found"
+              else
+                  echo "⚠️ Warning: Overview section not found"
+              fi
+              
+              if grep -q "## Abbreviations Glossary" docs/comprehensive-api-docs.md; then
+                  echo "✅ Abbreviations Glossary found"
+              else
+                  echo "⚠️ Warning: Abbreviations Glossary not found"
+              fi
+              
+              if grep -q "## References and Citations" docs/comprehensive-api-docs.md; then
+                  echo "✅ References and Citations found"
+              else
+                  echo "⚠️ Warning: References and Citations not found"
+              fi
+              
+              echo "✅ Documentation validation completed"
+            displayName: 'Validate Generated Documentation'
+            condition: always()
+          
+          # Publish documentation artifacts
+          - task: PublishBuildArtifacts@1
+            inputs:
+              pathToPublish: 'docs'
+              artifactName: 'comprehensive-api-documentation'
+              publishLocation: 'Container'
+            displayName: 'Publish Documentation Artifacts'
+            condition: always()
+          
+          # Display comprehensive summary
+          - script: |
+              echo ""
+              echo "📚 COMPREHENSIVE DOCUMENTATION GENERATION SUMMARY"
+              echo "=================================================="
+              echo ""
+              echo "📋 Generated Documentation:"
+              
+              if [ -f "docs/comprehensive-api-docs.md" ]; then
+                  echo "✅ Markdown: docs/comprehensive-api-docs.md"
+                  echo "   📊 Lines: $(wc -l < docs/comprehensive-api-docs.md)"
+                  echo "   📏 Size: $(du -h docs/comprehensive-api-docs.md | cut -f1)"
+              else
+                  echo "❌ Markdown documentation not found"
+              fi
+              
+              if [ -f "docs/comprehensive-api-docs.html" ]; then
+                  echo "✅ HTML: docs/comprehensive-api-docs.html"
+                  echo "   📏 Size: $(du -h docs/comprehensive-api-docs.html | cut -f1)"
+              else
+                  echo "❌ HTML documentation not found"
+              fi
+              
+              echo ""
+              echo "📑 Documentation Features:"
+              echo "   • Complete API overview with business context"
+              echo "   • Comprehensive abbreviations glossary (80+ terms)"
+              echo "   • Professional citations and references (25+ standards)"
+              echo "   • Detailed authentication and security guidelines"
+              echo "   • IT Security schema documentation with CIA Triad"
+              echo "   • BGW categorization explanations (all 6 values)"
+              echo "   • OWASP, NIST, ISO compliance references"
+              echo "   • Multi-language code examples (Python, cURL, JS, PHP)"
+              echo "   • Professional HTML styling with responsive design"
+              echo "   • Error handling with security considerations"
+              echo ""
+              echo "🎯 Artifacts published and ready for download!"
+              echo "💡 Access via: Build artifacts → comprehensive-api-documentation"
+              echo ""
+              echo "🔗 Standards Referenced:"
+              echo "   - ISO 27001:2022, ISO 27002:2022"
+              echo "   - NIST Cybersecurity Framework 2.0"
+              echo "   - OWASP API Security Top 10 2023"
+              echo "   - GDPR, HIPAA, PCI-DSS v4.0"
+              echo "   - OAuth 2.0, OpenID Connect, JWT"
+              echo "   - And many more..."
+            displayName: 'Documentation Generation Summary'
+            condition: always()

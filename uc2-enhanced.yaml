@@ -1,0 +1,374 @@
+# azure-pipelines-enhanced-fixed.yml
+trigger:
+  - main
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  - name: AZURE_OPENAI_API_VERSION
+    value: '2024-10-21'
+
+stages:
+  - stage: GenerateEnhancedDocs
+    displayName: 'Generate Enhanced Documentation'
+    jobs:
+      - job: GenerateDocs
+        displayName: 'Generate Documentation with Citations'
+        steps:
+          # Checkout repository
+          - checkout: self
+            displayName: 'Checkout Repository'
+          
+          # Setup Python
+          - task: UsePythonVersion@0
+            inputs:
+              versionSpec: '3.10'
+            displayName: 'Setup Python 3.10'
+          
+          # Install dependencies
+          - script: |
+              echo "Installing Python dependencies..."
+              pip install openai pyyaml markdown openapi-spec-validator
+            displayName: 'Install Dependencies'
+          
+          # Debug: Check what files exist
+          - script: |
+              echo "=== Checking repository structure ==="
+              echo "Current directory: $(pwd)"
+              echo ""
+              echo "Repository contents:"
+              ls -la
+              echo ""
+              echo "Checking for docs-gen directory:"
+              if [ -d "0DEV/docs-gen" ]; then
+                echo "0DEV/ docs-gen exists. Contents:"
+                ls -la 0DEV/docs-gen/
+              else
+                echo "❌ 0DEV/docs-gen directory not found"
+              fi
+              echo ""
+              echo "Checking for generate_docs_enhanced.py:"
+              if [ -f "0DEV/docs-gen/generate_docs_enhanced.py" ]; then
+                echo "✅ generate_docs_enhanced.py exists"
+              else
+                echo "❌ generate_docs_enhanced.py NOT FOUND - will create it"
+              fi
+            displayName: 'Debug: Check Files'
+          
+          # Create the enhanced documentation generator script
+          - script: |
+              echo "Creating generate_docs_enhanced.py..."
+              
+              # Create docs-gen directory if it doesn't exist
+              mkdir -p 0DEV/docs-gen
+              
+              # Create the Python script
+              cat > 0DEV/docs-gen/generate_docs_enhanced.py << 'SCRIPT_END'
+              #!/usr/bin/env python3
+              import os
+              import sys
+              import yaml
+              import json
+              import argparse
+              from openai import AzureOpenAI
+              import markdown
+              
+              def generate_docs_with_llm(spec_text):
+                  """Generate comprehensive documentation using Azure OpenAI"""
+                  try:
+                      client = AzureOpenAI(
+                          api_key=os.environ["AZURE_OPENAI_API_KEY"],
+                          azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
+                          api_version=os.environ.get("AZURE_OPENAI_API_VERSION", "2024-10-21")
+                      )
+                      
+                      # Enhanced system prompt with abbreviations and citations
+                      system_prompt = """You are an expert technical writer specializing in comprehensive API documentation. 
+                      Create DETAILED, developer-friendly documentation that includes:
+                      - Complete overview and purpose
+                      - Authentication details with examples
+                      - DETAILED endpoint descriptions with full request/response examples
+                      - COMPLETE schema documentation including:
+                        * ALL fields with their meanings and purposes
+                        * ALL enum values with explanations
+                        * ALL constraints (required, min/max, patterns)
+                        * Field relationships and dependencies
+                      - Comprehensive error handling with status codes
+                      - Business logic explanations for complex fields
+                      
+                      IMPORTANT: 
+                      - Document EVERY field in detail
+                      - List ALL possible enum values with their meanings
+                      - For bgwCategorization, list ALL values: WhiteMC, BlackMC, GreyMC, White, Black, Grey
+                      - Explain business context for fields like bgwCategorization, itSecurityClassification
+                      - Include validation rules and constraints
+                      - Provide multiple examples showing different scenarios
+                      
+                      Include these IT Security abbreviations:
+                      - BGW: Border Gateway
+                      - MC: Management Console
+                      - IC: Information Classification
+                      - CIA: Confidentiality, Integrity, Availability
+                      - GDPR: General Data Protection Regulation
+                      - ISO: International Organization for Standardization
+                      - NIST: National Institute of Standards and Technology
+                      - OWASP: Open Web Application Security Project
+                      
+                      Reference these security standards:
+                      - ISO/IEC 27001:2022 - Information security management systems
+                      - NIST Cybersecurity Framework Version 2.0 (2024)
+                      - GDPR (EU 2016/679)
+                      - SOC 2 Type II
+                      - OWASP Top 10 API Security 2023
+                      """
+                      
+                      # Enhanced user prompt
+                      user_prompt = f"""Generate COMPREHENSIVE API documentation from this OpenAPI specification.
+              
+              REQUIREMENTS:
+              1. Document EVERY field in the schemas section
+              2. For enum fields, list ALL possible values and explain what each means
+              3. For bgwCategorization specifically:
+                 - WhiteMC: Management Console accessible from public networks
+                 - BlackMC: Management Console restricted to internal networks
+                 - GreyMC: Management Console with conditional access
+                 - White: Standard public-facing classification
+                 - Black: Highly restricted, internal only
+                 - Grey: Restricted with specific access controls
+              4. For security classification fields, explain all levels
+              5. Include multiple examples showing different use cases
+              6. Explain validation rules and constraints
+              7. Document field relationships and dependencies
+              
+              OpenAPI Specification:
+              {spec_text}
+              
+              Create thorough documentation that leaves no ambiguity about any field or value."""
+              
+                      response = client.chat.completions.create(
+                          model=os.environ["AZURE_OPENAI_DEPLOYMENT"],
+                          messages=[
+                              {"role": "system", "content": system_prompt},
+                              {"role": "user", "content": user_prompt}
+                          ],
+                          temperature=0.3,
+                          top_p=0.95,
+                          max_tokens=15000  # Increased for comprehensive documentation
+                      )
+                      
+                      return response.choices[0].message.content
+                  except Exception as e:
+                      print(f"❌ LLM generation failed: {e}")
+                      return None
+              
+              def create_fallback_docs(spec_dict):
+                  """Create basic documentation if LLM fails"""
+                  info = spec_dict.get("info", {})
+                  title = info.get("title", "API Documentation")
+                  description = info.get("description", "")
+                  
+                  docs = [f"# {title}", "", description, "", "## Endpoints"]
+                  
+                  paths = spec_dict.get("paths", {})
+                  for path, methods in paths.items():
+                      docs.append(f"### {path}")
+                      for method, details in methods.items():
+                          docs.append(f"**{method.upper()}** - {details.get('summary', '')}")
+                      docs.append("")
+                  
+                  return "\n".join(docs)
+              
+              def markdown_to_html(md_content):
+                  """Convert Markdown to HTML"""
+                  html_body = markdown.markdown(md_content, extensions=['fenced_code', 'tables'])
+                  
+                  html = f"""<!DOCTYPE html>
+              <html><head><meta charset='utf-8'><title>API Documentation</title>
+              <style>
+                  body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+                         max-width: 1200px; margin: 0 auto; padding: 40px 20px; line-height: 1.6; }}
+                  h1, h2, h3 {{ color: #333; margin-top: 1.5em; }}
+                  code {{ background: #f1f3f4; padding: 2px 6px; border-radius: 3px; }}
+                  pre {{ background: #f8f9fa; padding: 16px; border-radius: 6px; overflow-x: auto; }}
+                  table {{ border-collapse: collapse; width: 100%; margin: 20px 0; }}
+                  th, td {{ border: 1px solid #ddd; padding: 12px; text-align: left; }}
+                  th {{ background-color: #f5f5f5; font-weight: 600; }}
+              </style>
+              </head>
+              <body>{html_body}</body></html>"""
+                  
+                  return html
+              
+              def main():
+                  parser = argparse.ArgumentParser(description='Generate enhanced API documentation')
+                  parser.add_argument('--spec', required=True, help='Path to OpenAPI spec')
+                  parser.add_argument('--output-md', required=True, help='Output Markdown file')
+                  parser.add_argument('--output-html', required=True, help='Output HTML file')
+                  parser.add_argument('--use-fallback', action='store_true', help='Use fallback generation')
+                  
+                  args = parser.parse_args()
+                  
+                  print(f"📖 Reading OpenAPI spec from {args.spec}")
+                  try:
+                      with open(args.spec, 'r', encoding='utf-8') as f:
+                          spec_text = f.read()
+                  except FileNotFoundError:
+                      print(f"❌ File not found: {args.spec}")
+                      sys.exit(1)
+                  
+                  # Parse spec
+                  try:
+                      spec_dict = yaml.safe_load(spec_text)
+                      print(f"✅ Loaded OpenAPI spec: {spec_dict.get('info', {}).get('title', 'Unknown')}")
+                  except yaml.YAMLError as e:
+                      print(f"❌ Invalid YAML: {e}")
+                      sys.exit(1)
+                  
+                  # Generate documentation
+                  if not args.use_fallback:
+                      print("🤖 Generating documentation with Azure OpenAI...")
+                      docs_markdown = generate_docs_with_llm(spec_text)
+                  else:
+                      docs_markdown = None
+                  
+                  # Fallback if needed
+                  if not docs_markdown:
+                      print("📝 Using fallback documentation generator...")
+                      docs_markdown = create_fallback_docs(spec_dict)
+                  
+                  # Write outputs
+                  print(f"💾 Writing Markdown to {args.output_md}")
+                  with open(args.output_md, 'w', encoding='utf-8') as f:
+                      f.write(docs_markdown)
+                  
+                  print(f"🌐 Writing HTML to {args.output_html}")
+                  html_content = markdown_to_html(docs_markdown)
+                  with open(args.output_html, 'w', encoding='utf-8') as f:
+                      f.write(html_content)
+                  
+                  print("✅ Documentation generation completed!")
+                  print(f"   📄 Markdown: {args.output_md}")
+                  print(f"   🌐 HTML: {args.output_html}")
+              
+              if __name__ == "__main__":
+                  main()
+              SCRIPT_END
+              
+              echo "✅ Script created successfully"
+              chmod +x 0DEV/docs-gen/generate_docs_enhanced.py
+              ls -la 0DEV/docs-gen/generate_docs_enhanced.py
+            displayName: 'Create Enhanced Generator Script'
+          
+          # Run the enhanced documentation generator
+          - script: |
+              echo "Running enhanced documentation generator..."
+              
+              # Check if OpenAPI spec exists
+              if [ ! -f "0DEV/specs/eam-api.yaml" ]; then
+                echo "⚠️ 0DEV/specs/eam-api.yaml not found. Looking for alternatives..."
+                
+                # Try to find any YAML file
+                SPEC_FILE=$(find . -name "*.yaml" -o -name "*.yml" | grep -E "(spec|eam-api|api)" | head -1)
+                
+                if [ -z "$SPEC_FILE" ]; then
+                  echo "❌ No OpenAPI spec file found!"
+                  exit 1
+                else
+                  echo "Using spec file: $SPEC_FILE"
+                fi
+              else
+                SPEC_FILE="0DEV/specs/eam-api.yaml"
+                echo "Using spec file: $SPEC_FILE"
+              fi
+              
+              # Run the generator with error handling
+              python 0DEV/docs-gen/generate_docs_enhanced.py \
+                --spec "$SPEC_FILE" \
+                --output-md "$(Build.ArtifactStagingDirectory)/api-documentation.md" \
+                --output-html "$(Build.ArtifactStagingDirectory)/api-documentation.html" \
+                || {
+                  echo "❌ Documentation generation failed!"
+                  echo "Trying with fallback mode..."
+                  python 0DEV/docs-gen/generate_docs_enhanced.py \
+                    --spec "$SPEC_FILE" \
+                    --output-md "$(Build.ArtifactStagingDirectory)/api-documentation.md" \
+                    --output-html "$(Build.ArtifactStagingDirectory)/api-documentation.html" \
+                    --use-fallback
+                }
+              
+              echo "Documentation generation process completed"
+            displayName: 'Generate Enhanced Documentation'
+            env:
+              AZURE_OPENAI_API_KEY: $(AZURE_OPENAI_API_KEY)
+              AZURE_OPENAI_ENDPOINT: $(AZURE_OPENAI_ENDPOINT)
+              AZURE_OPENAI_DEPLOYMENT: $(AZURE_OPENAI_DEPLOYMENT)
+          
+          # Verify output files
+          - script: |
+              echo "=== Verifying generated files ==="
+              
+              if [ -f "$(Build.ArtifactStagingDirectory)/api-documentation.md" ]; then
+                echo "✅ Markdown documentation generated"
+                echo "File size: $(wc -c < $(Build.ArtifactStagingDirectory)/api-documentation.md) bytes"
+                echo "First 500 characters:"
+                head -c 500 "$(Build.ArtifactStagingDirectory)/api-documentation.md"
+              else
+                echo "❌ Markdown file not found"
+                exit 1
+              fi
+              
+              echo ""
+              echo "---"
+              echo ""
+              
+              if [ -f "$(Build.ArtifactStagingDirectory)/api-documentation.html" ]; then
+                echo "✅ HTML documentation generated"
+                echo "File size: $(wc -c < $(Build.ArtifactStagingDirectory)/api-documentation.html) bytes"
+              else
+                echo "❌ HTML file not found"
+                exit 1
+              fi
+            displayName: 'Verify Output Files'
+          
+          # Generate summary report
+          - task: PythonScript@0
+            displayName: 'Create Documentation Summary'
+            inputs:
+              scriptSource: 'inline'
+              script: |
+                import os
+                import json
+                from datetime import datetime
+                
+                summary = {
+                    'build_number': '$(Build.BuildNumber)',
+                    'build_date': datetime.now().isoformat(),
+                    'branch': '$(Build.SourceBranchName)',
+                    'commit': '$(Build.SourceVersion)',
+                    'documentation_sections': [
+                        'Overview and Authentication',
+                        'API Endpoints',
+                        'Data Schemas with IT Security Details',
+                        'IT Security Guidelines',
+                        'Abbreviations and Acronyms',
+                        'References and Citations'
+                    ],
+                    'files_generated': [
+                        'api-documentation.md',
+                        'api-documentation.html'
+                    ]
+                }
+                
+                summary_path = os.path.join('$(Build.ArtifactStagingDirectory)', 'documentation-summary.json')
+                with open(summary_path, 'w') as f:
+                    json.dump(summary, f, indent=2)
+                
+                print('📊 Documentation Summary created')
+          
+          # Publish artifacts
+          - task: PublishBuildArtifacts@1
+            inputs:
+              PathtoPublish: '$(Build.ArtifactStagingDirectory)'
+              ArtifactName: 'enhanced-api-documentation'
+            displayName: 'Publish Documentation'
